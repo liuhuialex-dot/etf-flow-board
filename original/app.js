@@ -1106,8 +1106,6 @@
 /* 口径说明里写死的数字按实际数据实时回写：昨收点位、托底日天数、日度区间与交易日数。 */
 (function () {
   "use strict";
-  var I = window.__ISLANDS || {};
-  var initD = I.initData || {}, cmp = I.cmpData || {}, daily = I.dailyData || {};
   function set(id, v) {
     var el = document.getElementById(id);
     if (el && v != null && v !== "") el.textContent = v;
@@ -1116,9 +1114,17 @@
     var n = Number(pre);
     if (isFinite(n) && n > 0) set("preCloseTxt", n.toFixed(2));
   };
-  var sup = cmp.support || [];
-  if (sup.length) set("supCount", sup.length);
-  var ds = daily.dates || [];
-  if (ds.length) { set("dRange", ds[0] + " ~ " + ds[ds.length - 1]); set("dCount", ds.length); }
-  window.__syncPreClose(initD.preClose);
+  /* 公网静态版：data.js 跨源加载可能晚于本脚本执行，延迟到 load 后再读 __ISLANDS */
+  function applyAll() {
+    var I = window.__ISLANDS || {};
+    var initD = I.initData || {}, cmp = I.cmpData || {}, daily = I.dailyData || {};
+    var sup = cmp.support || [];
+    if (sup.length) set("supCount", sup.length);
+    var ds = daily.dates || [];
+    if (ds.length) { set("dRange", ds[0] + " ~ " + ds[ds.length - 1]); set("dCount", ds.length); }
+    window.__syncPreClose(initD.preClose);
+  }
+  if (document.readyState === "complete") applyAll();
+  else window.addEventListener("load", applyAll);
+  applyAll();
 })();
