@@ -13,7 +13,7 @@
     { code: "159361", m: "0" }, { code: "512050", m: "1" }, { code: "159633", m: "0" },
     { code: "560010", m: "1" }, { code: "159919", m: "0" }
   ];
-  var INDEX_SECID = "1.000001";
+  window.INDEX_SECID = "1.000001";
   var REFRESH_TRADING = 60, REFRESH_IDLE = 300;
   var BAR_LABEL = "20只ETF分钟成交额合计", IDX_LABEL = "上证综指";
   /* 左轴（分钟成交额）上限，单位亿元。
