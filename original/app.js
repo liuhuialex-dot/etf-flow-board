@@ -310,7 +310,7 @@
   /* ===== 公网静态版适配：浏览器直连行情源 =====
      东财 trends2（CORS 反射 Origin）+ 腾讯 qt.gtimg.cn（ACAO:*，GBK 用 TextDecoder 解）。
      原来走本地代理 /api/kline /api/hq，静态托管无服务器，改直连。 */
-  function emTrends(secid, ndays) {
+  window.emTrends = function (secid, ndays) {
     var url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=" + secid +
       "&fields1=f1,f2,f3,f4,f5,f6,f7,f8&fields2=f51,f53,f56,f57&ndays=" +
       Math.min(Math.max(ndays || 1, 1), 5) + "&iscr=0";
@@ -329,7 +329,7 @@
       return rows;
     });
   }
-  function txHq(codes) {
+  window.txHq = function (codes) {
     return fetch("https://qt.gtimg.cn/q=" + codes).then(function (r) {
       return r.arrayBuffer();
     }).then(function (buf) {
