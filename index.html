@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>重点ETF资金看板 · 公网版</title>
+<style>
+  :root { --up:#c0392b; --dn:#1e8449; --bg:#fafaf8; --ink:#1a1a1a; --mut:#777; --line:#e3e1dc; --hl:#fff3cd; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px/1.5 -apple-system,"SF Pro Text","PingFang SC",sans-serif; }
+  header { padding:14px 18px 8px; border-bottom:2px solid var(--ink); }
+  header h1 { margin:0; font-size:17px; letter-spacing:.5px; }
+  header .sub { color:var(--mut); font-size:12px; margin-top:2px; }
+  .tabs { display:flex; gap:2px; padding:0 18px; background:var(--bg); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:9; }
+  .tabs button { border:0; background:none; padding:9px 14px 7px; font-size:13px; cursor:pointer; color:var(--mut); border-bottom:2px solid transparent; }
+  .tabs button.on { color:var(--ink); border-bottom-color:var(--up); font-weight:600; }
+  section { padding:12px 18px 24px; display:none; }
+  section.on { display:block; }
+  h2 { font-size:14px; margin:14px 0 6px; }
+  h2 small { color:var(--mut); font-weight:400; margin-left:8px; font-size:11px; }
+  .note { color:var(--mut); font-size:11px; margin:4px 0 10px; }
+  canvas { display:block; background:#fff; border:1px solid var(--line); width:100%; }
+  table { border-collapse:collapse; width:100%; background:#fff; border:1px solid var(--line); }
+  th,td { padding:5px 8px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th:first-child,td:first-child, th:nth-child(2),td:nth-child(2) { text-align:left; }
+  th { background:#f3f2ef; font-weight:600; font-size:12px; position:sticky; top:38px; }
+  td.bar { position:relative; min-width:120px; }
+  td.bar .fill { position:absolute; left:0; top:2px; bottom:2px; background:rgba(192,57,43,.18); }
+  .up { color:var(--up); } .dn { color:var(--dn); }
+  .heat-pos { background:rgba(192,57,43,.12); } .heat-neg { background:rgba(30,132,73,.12); }
+  .heat-pos2 { background:rgba(192,57,43,.28); } .heat-neg2 { background:rgba(30,132,73,.28); }
+  #status { font-size:11px; color:var(--mut); margin:6px 0; }
+  .tag { display:inline-block; font-size:10px; padding:1px 6px; border:1px solid var(--line); border-radius:3px; color:var(--mut); margin-left:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>重点 ETF 资金看板 <span style="font-size:12px;color:var(--mut)">/ 公网版</span></h1>
+  <div class="sub">宽基托底观测 + 自选行业篮子 · 浏览器直连东财/腾讯行情 · 本页仅供研究参考</div>
+</header>
+<nav class="tabs">
+  <button data-s="s1" class="on">① 盘中分钟观测</button>
+  <button data-s="s3">③ 日度资金全景</button>
+</nav>
+
+<section id="s1" class="on">
+  <div id="status">初始化…</div>
+  <canvas id="minChart" height="340"></canvas>
+  <div class="note">柱：20 只宽基 ETF 每分钟二级市场成交金额加总；线：上证综指分钟收盘，虚线=昨日收盘。横轴 09:30–15:00，交易时段 60 秒自动刷新。</div>
+  <h2>单只 ETF 当日表现 <small>按成交额降序，条形背景=相对最大成交额比例</small></h2>
+  <table id="etfTable"><thead><tr><th>代码</th><th>名称</th><th>当日成交额(亿)</th><th>占比</th><th>涨跌幅</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section id="s3">
+  <h2>日度资金全景 <small>宽基 20 只 + 自选</small><span class="tag">申赎口径：待 iFinD，当前展示成交额/涨跌</span></h2>
+  <div class="note" id="dailyMeta"></div>
+  <table id="dailyTable"><thead></thead><tbody></tbody></table>
+</section>
+
+<script>
+/* ============ 配置 ============ */
+const WIDE_BASE = [ // 原看板篮子
+  ["588000","科创50ETF华夏"],["159915","创业板ETF易方达"],["510300","沪深300ETF华泰柏瑞"],
+  ["510050","上证50ETF华夏"],["512100","中证1000ETF南方"],["510500","中证500ETF南方"],
+  ["510310","沪深300ETF易方达"],["159919","沪深300ETF嘉实"],["563360","A500ETF华泰柏瑞"],
+  ["159338","中证A500ETF国泰"],["159352","A500ETF南方"],["159361","A500ETF易方达"],
+  ["159949","创业板50ETF华安"],["588080","科创50ETF易方达"],["159845","中证1000ETF华夏"],
+  ["512050","A500ETF华夏"],["159952","创业板ETF广发"],["560010","中证1000ETF广发"],
+  ["510210","上证指数ETF富国"],["159633","中证1000ETF易方达"],
+];
+const CUSTOM = [ // 自选篮子（光通信/半导体）
+  ["515050","通信ETF华夏"],["159995","芯片ETF"],
+];
+const MKT = c => (c.startsWith("5") ? "1" : "0") + "." + c;      // 东财 secid：沪1 深0
+const TS  = c => (c.startsWith("5") ? "sh" : "sz") + c;           // 腾讯代码
+const EM_KLINE = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
+const INDEX_SECID = "1.000001";
+
+/* ============ 工具 ============ */
+async function jget(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status); return r.json(); }
+function fmt(n,d=2){ return n==null||isNaN(n)?"—":Number(n).toFixed(d); }
+function cls(v){ return v>0?"up":(v<0?"dn":""); }
+function sign(v,d=2){ return (v>0?"+":"")+fmt(v,d)+"%"; }
+function resize(cv){ const dpr=devicePixelRatio||1, w=cv.clientWidth;
+  cv.width=w*dpr; cv.height=cv.getAttribute("height")*dpr; cv.style.height=cv.getAttribute("height")+"px";
+  cv.getContext("2d").setTransform(dpr,0,0,dpr,0,0); return w; }
+
+/* ============ Tab 切换 ============ */
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll("section").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); document.getElementById(b.dataset.s).classList.add("on");
+  if(b.dataset.s==="s1") drawAll();
+});
+
+/* ============ 模块①：盘中分钟（浏览器直连东财 kline，CORS 已验证开放） ============ */
+let MIN = { labels:[], etf:[], idx:[], prevClose:null, etfSum:0 };
+
+async function emKline(secid){
+  const u = EM_KLINE+"?secid="+secid+"&fields1=f1,f2,f3,f4,f5,f6"
+          + "&fields2=f51,f52,f53,f54,f55,f56,f57&klt=1&fqt=1&beg=0&end=20500101&lmt=500";
+  return jget(u);
+}
+
+async function loadMinute(){
+  const secs = WIDE_BASE.map(e=>MKT(e[0]));
+  const kl = await emKline(INDEX_SECID);
+  const kd = kl.data && kl.data.klines ? kl.data.klines : [];
+  const prevClose = kl.data ? kl.data.preKPrice : null;
+  const today = kd.length ? kd[kd.length-1].split(",")[0].slice(0,10) : null;
+  const idxMap = {};
+  kd.forEach(l=>{ const p=l.split(","); if(p[0].slice(0,10)===today) idxMap[p[0].slice(11,16)] = +p[2]; });
+
+  const etfSeries = await Promise.all(secs.map(s=>emKline(s).catch(()=>null)));
+  const sumMap = {};
+  etfSeries.forEach(r=>{
+    if(!r||!r.data||!r.data.klines) return;
+    r.data.klines.forEach(l=>{ const p=l.split(","); if(p[0].slice(0,10)!==today) return;
+      const t=p[0].slice(11,16); sumMap[t]=(sumMap[t]||0)+(+p[6]); });
+  });
+  const labels = Object.keys(sumMap).sort();
+  MIN = { labels,
+    etf: labels.map(t=>sumMap[t]/1e8),
+    idx: labels.map(t=>idxMap[t]??null),
+    prevClose, etfSum: labels.length? sumMap[labels[labels.length-1]]/1e8 : 0 };
+}
+
+async function loadTable(){
+  // 浏览器直连腾讯行情（ACAO:*，GBK 用 TextDecoder 解）
+  const syms = WIDE_BASE.concat(CUSTOM).map(e=>TS(e[0])).join(",");
+  const r = await fetch("https://qt.gtimg.cn/q="+syms);
+  const txt = new TextDecoder("gbk").decode(await r.arrayBuffer());
+  const rows = [];
+  for(const m of txt.matchAll(/v_(?:sh|sz)(\d{6})="([^"]*)"/g)){
+    const f = m[2].split("~");
+    if(f.length<38) continue;
+    rows.push({ code:m[1], name:f[1],
+      amount: parseFloat(f[37]||"0")/1e4,   // 万元 → 亿元
+      pct: parseFloat(f[32]||"0") });
+  }
+  rows.sort((a,b)=>b.amount-a.amount);
+  const max = rows.length?rows[0].amount:1;
+  document.querySelector("#etfTable tbody").innerHTML = rows.map(x=>`
+    <tr><td>${x.code}</td><td>${x.name}</td>
+      <td class="bar"><div class="fill" style="width:${(x.amount/max*100).toFixed(1)}%"></div>${fmt(x.amount)}</td>
+      <td>${(x.amount/max*100).toFixed(1)}%</td>
+      <td class="${cls(x.pct)}">${sign(x.pct)}</td></tr>`).join("");
+}
+
+function drawAll(){
+  const cv = document.getElementById("minChart");
+  const W = resize(cv), H = +cv.getAttribute("height"), ctx = cv.getContext("2d");
+  ctx.clearRect(0,0,W,H);
+  const pad = {l:46,r:46,t:14,b:26};
+  const {labels, etf, idx, prevClose} = MIN;
+  if(!labels.length){ ctx.fillStyle="#999"; ctx.fillText("暂无当日分钟数据（非交易时段或数据未就绪）", W/2-140, H/2); return; }
+  const plotW = W-pad.l-pad.r, plotH = H-pad.t-pad.b;
+  const x = i => pad.l + plotW*i/240;
+  const ymax = Math.max(...etf)*1.15||1;
+  ctx.strokeStyle="#ddd"; ctx.fillStyle="#999"; ctx.font="10px sans-serif";
+  for(let g=0; g<=4; g++){ const y=pad.t+plotH*g/4, v=ymax*(1-g/4);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText(fmt(v,0), 4, y+3); }
+  /* 成交量柱 */
+  const bw = Math.max(2, plotW/240*0.6);
+  ctx.fillStyle = "rgba(192,57,43,.55)";
+  labels.forEach((t,i)=>{ const h=plotH*(etf[i]/ymax); ctx.fillRect(x(i)-bw/2, pad.t+plotH-h, bw, h); });
+  /* 指数线（右轴） */
+  const iv = idx.filter(v=>v!=null);
+  if(iv.length){
+    const lo=Math.min(...iv, prevClose??iv[0])*0.999, hi=Math.max(...iv, prevClose??iv[0])*1.001;
+    const y2 = v => pad.t + plotH*(1-(v-lo)/(hi-lo));
+    if(prevClose!=null){ ctx.strokeStyle="#bbb"; ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(pad.l,y2(prevClose)); ctx.lineTo(W-pad.r,y2(prevClose)); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.strokeStyle="#1a1a1a"; ctx.lineWidth=1.4; ctx.beginPath();
+    let started=false;
+    idx.forEach((v,i)=>{ if(v==null) return; const px=x(i), py=y2(v);
+      started ? ctx.lineTo(px,py) : (ctx.moveTo(px,py), started=true); });
+    ctx.stroke();
+    ctx.fillStyle="#1a1a1a"; ctx.fillText(fmt(hi,0), W-pad.r+6, pad.t+8); ctx.fillText(fmt(lo,0), W-pad.r+6, pad.t+plotH);
+  }
+  /* 时间轴 */
+  ctx.fillStyle="#999";
+  ["09:30","10:30","11:30/13:00","14:00","15:00"].forEach((t,i)=>{
+    const px = pad.l + plotW*[0,60,120,150,240][i]/240; ctx.fillText(t, px-14, H-8); });
+  /* 最新值标注 */
+  ctx.fillStyle="#c0392b"; ctx.font="bold 11px sans-serif";
+  ctx.fillText("ΣETF 成交 "+fmt(MIN.etfSum,1)+" 亿", pad.l+6, pad.t+14);
+}
+
+async function refreshS1(){
+  const st = document.getElementById("status");
+  try{
+    await Promise.all([loadMinute(), loadTable()]);
+    st.textContent = `更新于 ${new Date().toLocaleTimeString("zh-CN",{hour12:false})} · 交易时段60秒自动刷新 · 浏览器直连行情源`;
+    drawAll();
+  }catch(e){ st.textContent = "数据加载失败："+e.message+"（稍后自动重试）"; }
+}
+refreshS1();
+setInterval(()=>{ const h=new Date().getHours(), m=new Date().getMinutes();
+  if((h>9||h===9&&m>=25)&&(h<15||(h===15&&m<=5))) refreshS1(); }, 60000);
+
+/* ============ 模块③：日度全景（静态快照，逐日累积） ============ */
+(async function loadDaily(){
+  try{
+    const d = await jget("./daily_snapshot.json");
+    if(!d.rows){ document.getElementById("dailyMeta").textContent="暂无历史快照（每日收盘后自动累积）"; return; }
+    document.getElementById("dailyMeta").textContent =
+      `区间：${d.range||""} · 每日收盘后自动累积 · ${d.note||""}`;
+    const head = ["日期","类型",...d.etfs.map(e=>e[1])];
+    const tb = document.getElementById("dailyTable");
+    tb.querySelector("thead").innerHTML = "<tr>"+head.map(h=>`<th>${h}</th>`).join("")+"</tr>";
+    tb.querySelector("tbody").innerHTML = d.rows.slice(-30).reverse().map(r=>{
+      const cells = head.map((h,i)=>{
+        if(i<2) return `<td>${r[i]}</td>`;
+        const v = r[i]; if(v==null) return "<td>—</td>";
+        const tag = typeof v==="number"&&r[1]==="净流入" ? (v>0?"heat-pos":v<0?"heat-neg":"")
+                  : (Math.abs(v)>2?(v>0?"heat-pos2":"heat-neg2"):"");
+        return `<td class="${tag}">${typeof v==="number"?(r[1]==="涨跌幅"?sign(v):fmt(v)):v}</td>`;
+      }).join("");
+      return "<tr>"+cells+"</tr>";
+    }).join("");
+  }catch(e){ document.getElementById("dailyMeta").textContent="日度数据未就绪"; }
+})();
+</script>
+</body>
+</html>
